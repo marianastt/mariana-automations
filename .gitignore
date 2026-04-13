@@ -1,0 +1,30 @@
+# Credenciais — NUNCA commitar
+service-account-key.json
+*.key.json
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+
+# Outputs locais (relatórios gerados)
+*.docx
+*.pdf
+relatorios_fotograficos/
+output/
+tmp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
