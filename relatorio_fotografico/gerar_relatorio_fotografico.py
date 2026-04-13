@@ -89,7 +89,7 @@ PHOTO_SECTIONS = [
     ("Fotos da empilhadeira (se houver)",
      "Empilhadeira"),
     ("Fotos dos funcionários na operação/utilização de EPI",
-     "Funcionários na operação / Utilização de EPI"),
+     "Funcionários/Cooperados/Associados na operação / Utilização de EPI"),
     ("Foto dos veículos (se houver)",
      "Veículos"),
 ]
@@ -758,7 +758,7 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
     emp_m = ans.get("Mulheres", "")
     if emp_h or emp_m:
         total = int(emp_h or 0) + int(emp_m or 0)
-        admin_items.append(("Funcionários", f"{total} (Homens: {emp_h} / Mulheres: {emp_m})"))
+        admin_items.append(("Funcionários/Cooperados/Associados", f"{total} (Homens: {emp_h} / Mulheres: {emp_m})"))
     div_admin = ans.get("Possui divisão administrativa definida? (Presidente, conselheiro, tesoureiro)", "")
     if div_admin and not re.match(r'^[0-9a-f]{8}-', div_admin):
         admin_items.append(("Divisão Administrativa", div_admin))
