@@ -144,7 +144,8 @@ def find_operator(args):
         sys.exit(1)
 
     rows = bq_query(f"""
-        SELECT s.id as subsidiary_id, s.cnpj, s.type, c.name as company_name, c.id as company_id
+        SELECT s.id as subsidiary_id, s.cnpj, s.type, s.state as uf, s.city,
+               c.name as company_name, c.id as company_id
         FROM `{BQ_PROJECT}.{BQ_DATASET}.subsidiaries` s
         JOIN `{BQ_PROJECT}.{BQ_DATASET}.companies` c ON s.companyid = c.id
         WHERE c.stakeholder = 'operator' AND s._fivetran_deleted IS NOT TRUE AND {where}
@@ -582,9 +583,11 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
 
     company_name = operator["company_name"]
     cnpj = operator["cnpj"]
+    uf = (operator.get("uf") or "").strip() or "—"
     operator_type = "Cooperativa" if operator["type"] == "Coop" else "Empresa"
     address = get_address(audit)
     approval_date = format_date(audit.get("aprovedat", ""))
+    mode = getattr(args, "mode", "both")  # "dco" | "fotografico" | "both"
 
     # ════════════════════════════════════════
     #  CAPA
@@ -635,27 +638,34 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
     for _ in range(4):
         doc.add_paragraph()
 
-    # Box operador na capa
-    op_table = doc.add_table(rows=2, cols=1)
+    # Box operador na capa — 3 pares (OPERADOR, CNPJ, ESTADO)
+    op_table = doc.add_table(rows=6, cols=1)
     op_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    # Label
-    cell_label = op_table.cell(0, 0)
-    cell_label.text = ""
-    set_cell_shading(cell_label, AZUL_HEX)
-    p = cell_label.paragraphs[0]
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run("OPERADOR")
-    set_font(run, size=12, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
-    # Nome
-    cell_name = op_table.cell(1, 0)
-    cell_name.text = ""
-    set_cell_shading(cell_name, CINZA_CLARO)
-    p = cell_name.paragraphs[0]
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(8)
-    p.paragraph_format.space_after = Pt(8)
-    run = p.add_run(company_name)
-    set_font(run, size=13, bold=True, color=AZUL_ESCURO)
+
+    cover_fields = [
+        ("OPERADOR", company_name),
+        ("CNPJ", cnpj),
+        ("ESTADO", uf),
+    ]
+    for i, (label, value) in enumerate(cover_fields):
+        # Label (linha azul)
+        cell_label = op_table.cell(i * 2, 0)
+        cell_label.text = ""
+        set_cell_shading(cell_label, AZUL_HEX)
+        p = cell_label.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(label)
+        set_font(run, size=12, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
+        # Valor (linha cinza)
+        cell_val = op_table.cell(i * 2 + 1, 0)
+        cell_val.text = ""
+        set_cell_shading(cell_val, CINZA_CLARO)
+        p = cell_val.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_before = Pt(8)
+        p.paragraph_format.space_after = Pt(8)
+        run = p.add_run(value)
+        set_font(run, size=13, bold=True, color=AZUL_ESCURO)
 
     # Borda da tabela
     tbl = op_table._tbl
@@ -697,42 +707,50 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
     doc.add_page_break()
 
     # ════════════════════════════════════════
-    #  RELATÓRIO FOTOGRÁFICO - INTRODUÇÃO
+    #  CONTEÚDO DO QUESTIONÁRIO (DCO)
     # ════════════════════════════════════════
-    add_section_title(doc, "RELATÓRIO FOTOGRÁFICO", level=1)
-
-    add_styled_paragraph(
-        doc,
-        f"A seguir é apresentado o RELATÓRIO FOTOGRÁFICO do Operador de Reciclagem "
-        f"{company_name}, inscrita sob o CNPJ {cnpj}.",
-    )
-    doc.add_paragraph()
-
-    # ── Dados vêm das respostas do questionário (fonte primária) ──
     ans = answers_dict(answers)
 
-    # ── Informações Gerais ──
-    add_section_title(doc, "Informações Gerais", level=2)
-    build_info_table(doc, [
-        ("Razão Social", company_name),
-        ("CNPJ", cnpj),
-        ("Tipo", operator_type),
-        ("Endereço", address),
-        ("Data de Aprovação da Auditoria", approval_date),
-    ])
+    if mode != "fotografico":
+        if mode == "dco":
+            intro_title = "DECLARAÇÃO DE CAPACIDADE OPERACIONAL"
+            intro_text = (
+                f"A seguir é apresentada a DECLARAÇÃO DE CAPACIDADE OPERACIONAL "
+                f"do Operador de Reciclagem {company_name}, inscrita sob o CNPJ {cnpj}."
+            )
+        else:
+            intro_title = "RELATÓRIO FOTOGRÁFICO"
+            intro_text = (
+                f"A seguir é apresentado o RELATÓRIO FOTOGRÁFICO do Operador de Reciclagem "
+                f"{company_name}, inscrita sob o CNPJ {cnpj}."
+            )
+        add_section_title(doc, intro_title, level=1)
+        add_styled_paragraph(doc, intro_text)
+        doc.add_paragraph()
 
-    # Placeholder para foto de localização (abaixo das informações gerais)
-    p_sv = doc.add_paragraph()
-    p_sv.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    run_sv = p_sv.add_run("Localização do Empreendimento")
-    set_font(run_sv, size=13, bold=True, color=AZUL_ESCURO)
-    _add_placeholder_box(doc, f"Foto Google Street View — {address}")
-    cap_sv = doc.add_paragraph()
-    cap_sv.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    cap_sv.paragraph_format.space_after = Pt(12)
-    run_cap_sv = cap_sv.add_run(address)
-    set_font(run_cap_sv, size=9, bold=True, color=GRAFITE, italic=True)
-    doc.add_paragraph()
+    # ── Informações Gerais ──
+    if mode != "fotografico":
+        add_section_title(doc, "Informações Gerais", level=2)
+        build_info_table(doc, [
+            ("Razão Social", company_name),
+            ("CNPJ", cnpj),
+            ("Tipo", operator_type),
+            ("Endereço", address),
+            ("Data de Aprovação da Auditoria", approval_date),
+        ])
+
+        # Placeholder para foto de localização (abaixo das informações gerais)
+        p_sv = doc.add_paragraph()
+        p_sv.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        run_sv = p_sv.add_run("Localização do Empreendimento")
+        set_font(run_sv, size=13, bold=True, color=AZUL_ESCURO)
+        _add_placeholder_box(doc, f"Foto Google Street View — {address}")
+        cap_sv = doc.add_paragraph()
+        cap_sv.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cap_sv.paragraph_format.space_after = Pt(12)
+        run_cap_sv = cap_sv.add_run(address)
+        set_font(run_cap_sv, size=9, bold=True, color=GRAFITE, italic=True)
+        doc.add_paragraph()
 
     # ── Administrativo ──
     admin_items = []
@@ -747,20 +765,21 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
     renda = ans.get("Renda Média Por Pessoa", "")
     if renda:
         admin_items.append(("Renda Média por Pessoa (R$)", renda))
-    if admin_items:
+    if admin_items and mode != "fotografico":
         add_section_title(doc, "Administrativo", level=2)
         build_info_table(doc, admin_items)
 
     # ── Equipamentos ──
     # Mostra TODOS os equipamentos, mesmo com quantidade 0
-    equip_items = []
-    for label, key in [("Prensas", "Prensas"), ("Balanças", "Balanças"),
-                        ("Mesas de Triagem", "Mesas"), ("Esteiras", "Esteiras"),
-                        ("Empilhadeira", "Empilhadeira"), ("Veículos", "Veículos")]:
-        val = ans.get(key, "")
-        equip_items.append((label, val if val else "0"))
-    add_section_title(doc, "Equipamentos", level=2)
-    build_info_table(doc, equip_items)
+    if mode != "fotografico":
+        equip_items = []
+        for label, key in [("Prensas", "Prensas"), ("Balanças", "Balanças"),
+                            ("Mesas de Triagem", "Mesas"), ("Esteiras", "Esteiras"),
+                            ("Empilhadeira", "Empilhadeira"), ("Veículos", "Veículos")]:
+            val = ans.get(key, "")
+            equip_items.append((label, val if val else "0"))
+        add_section_title(doc, "Equipamentos", level=2)
+        build_info_table(doc, equip_items)
 
     # ── Infraestrutura ──
     infra_items = []
@@ -773,7 +792,7 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
         val = clean_answer(ans.get(q_key, ""))
         if val and val != "—":
             infra_items.append((label, val))
-    if infra_items:
+    if infra_items and mode != "fotografico":
         add_section_title(doc, "Infraestrutura", level=2)
         build_info_table(doc, infra_items)
 
@@ -793,7 +812,7 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
         val = clean_answer(ans.get(q_key, ""))
         if val and val != "—":
             seg_items.append((label, val))
-    if seg_items:
+    if seg_items and mode != "fotografico":
         add_section_title(doc, "Segurança", level=2)
         build_info_table(doc, seg_items)
 
@@ -817,7 +836,7 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
         val = clean_answer(ans.get(q_key, ""))
         if val and val != "—":
             op_items.append((label, val))
-    if op_items:
+    if op_items and mode != "fotografico":
         add_section_title(doc, "Operacional", level=2)
         build_info_table(doc, op_items)
 
@@ -826,7 +845,7 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
     plastico = ans.get("Plástico", "")
     metal = ans.get("Metal", "")
     vidro = ans.get("Vidro", "")
-    if any([papel, plastico, metal, vidro]):
+    if any([papel, plastico, metal, vidro]) and mode != "fotografico":
         add_section_title(doc, "Materiais Processados", level=2)
 
         mat_values = [float(papel or 0), float(plastico or 0),
@@ -898,7 +917,7 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
         waste_items.append(("Destino dos Rejeitos", rejeito_dest))
     if rejeito_qty:
         waste_items.append(("Quantidade Média de Rejeito (t/mês)", rejeito_qty))
-    if waste_items:
+    if waste_items and mode != "fotografico":
         add_section_title(doc, "Resíduos / Rejeitos", level=2)
         build_info_table(doc, waste_items)
 
@@ -909,66 +928,67 @@ def generate_report(operator, audit, all_attachments, answers, observations, arg
         val = clean_answer(ans.get(q_key, ""))
         if val and val != "—":
             contabil_items.append((label, val))
-    if contabil_items:
+    if contabil_items and mode != "fotografico":
         add_section_title(doc, "Contábil", level=2)
         build_info_table(doc, contabil_items)
 
     # ── Observações (de todas as auditorias) ──
-    if observations:
+    if observations and mode != "fotografico":
         add_section_title(doc, "Observações", level=2)
         build_info_table(doc, observations)
 
     # ════════════════════════════════════════
     #  REGISTRO FOTOGRÁFICO
     # ════════════════════════════════════════
-    doc.add_page_break()
-    add_section_title(doc, "REGISTRO FOTOGRÁFICO", level=1)
+    if mode != "dco":
+        doc.add_page_break()
+        add_section_title(doc, "REGISTRO FOTOGRÁFICO", level=1)
 
-    add_styled_paragraph(
-        doc,
-        "A seguir são apresentadas as fotos do empreendimento, "
-        "organizadas por categoria de infraestrutura e operação.",
-    )
-    doc.add_paragraph()
+        add_styled_paragraph(
+            doc,
+            "A seguir são apresentadas as fotos do empreendimento, "
+            "organizadas por categoria de infraestrutura e operação.",
+        )
+        doc.add_paragraph()
 
-    # Mapear fotos por category_name (excluir comprovante bancário e docs)
-    fotos_by_cat = {}
-    excluded_cats = {"Comprovante bancário", "Logotipo", "(sem categoria)"}
-    for att in all_attachments:
-        if att["category_name"] in excluded_cats:
-            continue
-        if att["category_group"] == "Documentation":
-            continue
-        fotos_by_cat.setdefault(att["category_name"], []).append(att)
+        # Mapear fotos por category_name (excluir comprovante bancário e docs)
+        fotos_by_cat = {}
+        excluded_cats = {"Comprovante bancário", "Logotipo", "(sem categoria)"}
+        for att in all_attachments:
+            if att["category_name"] in excluded_cats:
+                continue
+            if att["category_group"] == "Documentation":
+                continue
+            fotos_by_cat.setdefault(att["category_name"], []).append(att)
 
-    for cat_name, legend in PHOTO_SECTIONS:
-        # Subtítulo da seção de foto
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        p.paragraph_format.space_before = Pt(12)
-        run = p.add_run(legend)
-        set_font(run, size=13, bold=True, color=AZUL_ESCURO)
+        for cat_name, legend in PHOTO_SECTIONS:
+            # Subtítulo da seção de foto
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.paragraph_format.space_before = Pt(12)
+            run = p.add_run(legend)
+            set_font(run, size=13, bold=True, color=AZUL_ESCURO)
 
-        photos = fotos_by_cat.pop(cat_name, [])
-        if photos:
+            photos = fotos_by_cat.pop(cat_name, [])
+            if photos:
+                for photo in photos:
+                    add_photo_placeholder(doc, legend, photo=photo,
+                                          fotos_dir=args.fotos_dir,
+                                          storage_url=args.storage_url)
+            else:
+                add_photo_placeholder(doc, legend)
+
+        # Extras
+        for cat_name, photos in fotos_by_cat.items():
+            if cat_name == "(sem categoria)":
+                continue
+            p = doc.add_paragraph()
+            run = p.add_run(cat_name)
+            set_font(run, size=13, bold=True, color=AZUL_ESCURO)
             for photo in photos:
-                add_photo_placeholder(doc, legend, photo=photo,
+                add_photo_placeholder(doc, cat_name, photo=photo,
                                       fotos_dir=args.fotos_dir,
                                       storage_url=args.storage_url)
-        else:
-            add_photo_placeholder(doc, legend)
-
-    # Extras
-    for cat_name, photos in fotos_by_cat.items():
-        if cat_name == "(sem categoria)":
-            continue
-        p = doc.add_paragraph()
-        run = p.add_run(cat_name)
-        set_font(run, size=13, bold=True, color=AZUL_ESCURO)
-        for photo in photos:
-            add_photo_placeholder(doc, cat_name, photo=photo,
-                                  fotos_dir=args.fotos_dir,
-                                  storage_url=args.storage_url)
 
     # ════════════════════════════════════════
     #  DECLARAÇÃO DE VÍNCULO TÉCNICO
@@ -1028,6 +1048,8 @@ def main():
     parser.add_argument("--responsavel", default="Mariana Shiguemi Toschi Takagi")
     parser.add_argument("--cpf", default="407.186.018-90")
     parser.add_argument("--crea", default="CREA/SP 5070173382")
+    parser.add_argument("--mode", choices=["dco", "fotografico", "both"], default="both",
+                        help="Tipo de documento: 'dco' (só DCO), 'fotografico' (só fotos) ou 'both' (legado)")
     args = parser.parse_args()
 
     print("Buscando operador...")
